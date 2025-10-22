@@ -2,33 +2,32 @@ include("simple.jl")
 using Genie, Genie.Renderer.Json, Genie.Requests, HTTP
 using UUIDs
 
-# Almacén de instancias de modelo por ID
+# Reutilizable entre recargas del archivo:
 instances = isdefined(@__MODULE__, :instances) ? instances : Dict{String, Any}()
 
-# ---- Serialización plana a JSON ----
-# Cada auto sale como: { id, pos: [x,y], vel: [vx,vy] }
-serialize_car(car) = Dict(
-    "id"  => car.id,
-    "pos" => [car.pos[1], car.pos[2]],
-    "vel" => [car.vel[1], car.vel[2]],
+# ---- Serialización plana ----
+# { id, pos:[x,y], dir:"EW"|"NS", state:"green"|"yellow"|"red" }
+serialize_light(l) = Dict(
+    "id"    => l.id,
+    "pos"   => [l.pos[1], l.pos[2]],
+    "dir"   => String(l.dir),
+    "state" => String(light_state(l))
 )
 
-serialize_cars(model) = [serialize_car(car) for car in allagents(model)]
+serialize_lights(model) = [serialize_light(l) for l in allagents(model)]
 
 # ---- Rutas ----
-
-# Crear simulación
 route("/simulations", method = POST) do
     model = initialize_model()
     id = string(uuid1())
     instances[id] = model
-    return json(Dict(
+    json(Dict(
         "Location" => "/simulations/$id",
-        "cars"     => serialize_cars(model)
+        "lights"   => serialize_lights(model),
+        "cars"     => Any[]   # etapa sin autos
     ))
 end
 
-# Avanzar una simulación (1 tick) y devolver estado
 route("/simulations/:id") do
     sim_id = payload(:id)
     if !haskey(instances, sim_id)
@@ -36,7 +35,10 @@ route("/simulations/:id") do
     end
     model = instances[sim_id]
     run!(model, 1)
-    return json(Dict("cars" => serialize_cars(model)))
+    json(Dict(
+        "lights" => serialize_lights(model),
+        "cars"   => Any[]     # etapa sin autos
+    ))
 end
 
 # ---- CORS / servidor ----

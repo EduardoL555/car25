@@ -1,69 +1,66 @@
 using Agents, Random
 using StaticArrays: SVector
-using Distributions: Uniform
 
-# Agente continuo; el flag `accelerating` queda por compatibilidad (no lo usamos aquí)
-@agent struct Car(ContinuousAgent{2,Float64})
-    accelerating::Bool = true
+# ===== Semáforos =====
+# Ciclo: 10 verde, 4 amarillo, 14 rojo ⇒ 28 ticks
+const CYCLE  = 28
+const G_T    = 10
+const Y_T    = 4
+# R_T = 14 (implicado)
+
+@agent struct Light(ContinuousAgent{2,Float64})
+    dir::Symbol   # :EW (este-oeste) o :NS (norte-sur)
+    tick::Int     # contador 0..27
 end
 
-# Reglas de cambio de velocidad (componente X)
-accelerate(agent) = agent.vel[1] + 0.05
-decelerate(agent) = agent.vel[1] - 0.1
-
-# Detecta si hay un auto "adelante" en la MISMA vía (misma Y) dentro de un rango de vista
-function car_ahead(agent, model; lookahead::Float64 = 3.0, lane_tol::Float64 = 0.01)
-    ahead = nothing
-    min_dx = Inf
-    for nb in nearby_agents(agent, model, lookahead)
-        # misma vía (Y casi igual)
-        if abs(nb.pos[2] - agent.pos[2]) <= lane_tol
-            dx = nb.pos[1] - agent.pos[1]  # diferencia en X
-            if dx > 0 && dx < min_dx
-                ahead = nb
-                min_dx = dx
-            end
-        end
+# Estado del semáforo según su tick actual
+light_state(l::Light)::Symbol = begin
+    t = mod(l.tick, CYCLE)
+    if t < G_T
+        :green
+    elseif t < G_T + Y_T
+        :yellow
+    else
+        :red
     end
-    return ahead
 end
 
-function agent_step!(agent, model)
-    # Si hay un auto por delante en la misma vía -> desacelera, si no -> acelera
-    new_velocity = isnothing(car_ahead(agent, model)) ? accelerate(agent) : decelerate(agent)
-
-    # Saturación en [0, 1]
-    if new_velocity > 1.0
-        new_velocity = 1.0
-    elseif new_velocity < 0.0
-        new_velocity = 0.0
-    end
-
-    # Actualiza vector de velocidad (horizontal)
-    agent.vel = SVector{2, Float64}(new_velocity, 0.0)
-
-    # Avanza (dt = 0.4)
-    move_agent!(agent, model, 0.4)
+# Avance 1 tick del semáforo (no se mueve, solo cambia estado)
+function agent_step!(l::Light, model)
+    l.tick = mod(l.tick + 1, CYCLE)
+    # Velocidad cero (por claridad, aunque no se usa)
+    l.vel = SVector{2, Float64}(0.0, 0.0)
 end
 
-function initialize_model(extent = (25, 10))
+# Inicialización SOLO con semáforos (sin autos)
+function initialize_model(extent = (25, 25))
+    # Espacio cuadrado y periódico (wrap-around no afecta, pues no nos movemos)
     space2d = ContinuousSpace(extent; spacing = 0.5, periodic = true)
     rng = Random.MersenneTwister()
 
-    model = StandardABM(Car, space2d; rng, agent_step!, scheduler = Schedulers.Randomly())
+    # ABM de semáforos
+    model = StandardABM(Light, space2d; rng, agent_step!, scheduler = Schedulers.Randomly())
 
-    y_lane = 1.0  # <-- local, NO const
-    first = true
-    for px in randperm(rng, 25)[1:5]
-        speed = first ? 1.0 : rand(rng, Uniform(0.2, 0.7))
-        add_agent!(
-            SVector{2, Float64}(px, y_lane),
-            model;
-            vel = SVector{2, Float64}(speed, 0.0),
-            accelerating = true
-        )
-        first = false
-    end
+    # Centro del cruce
+    cx, cy = extent[1] / 2, extent[2] / 2
+
+    # Dos semáforos: uno para flujo Este-Oeste (EW) y otro para Norte-Sur (NS)
+    # Sincronización: cuando EW está en verde, NS está en rojo (offset de media vuelta = 14)
+    add_agent!(
+        SVector{2, Float64}(cx - 0.5, cy),  # ubicación simbólica en la vía EW
+        model;
+        vel  = SVector{2, Float64}(0.0, 0.0),
+        dir  = :EW,
+        tick = 0              # arranca en verde
+    )
+
+    add_agent!(
+        SVector{2, Float64}(cx, cy - 0.5),  # ubicación simbólica en la vía NS
+        model;
+        vel  = SVector{2, Float64}(0.0, 0.0),
+        dir  = :NS,
+        tick = 14             # arranca en rojo (desfase 14)
+    )
 
     return model
 end
