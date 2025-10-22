@@ -11,7 +11,7 @@ const ACC         = 0.05
 const DEC         = 0.10
 const LOOKAHEAD   = 3.5
 const LANE_TOL    = 0.15
-const SAFE_GAP    = 0.35
+const SAFE_GAP    = 0.75
 const STOP_ZONE   = 3.0
 
 @agent struct TrafficLight(ContinuousAgent{2,Float64})

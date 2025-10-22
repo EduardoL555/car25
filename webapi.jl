@@ -84,7 +84,6 @@ route("/simulations/:id") do
     ))
 end
 
-# ---- CORS / servidor ----
 Genie.config.run_as_server = true
 Genie.config.cors_headers["Access-Control-Allow-Origin"]  = "*"
 Genie.config.cors_headers["Access-Control-Allow-Headers"] = "Content-Type"
