@@ -1,50 +1,20 @@
-# Cruce con semáforos + 1 auto (Agents.jl + Genie + React)
+## Parte 2 – Pregunta 3: Completar simulación con múltiples autos y monitoreo
 
-## Objetivo
-Extender el cruce con dos semáforos sincronizados para integrar **un auto** que circula por la **vía horizontal**.  
-El auto **no aparece dentro del cruce** y **se detiene** ante luz **amarilla/roja** a una distancia segura, sin invadir el carril perpendicular.  
-Se emplean **dos tipos de agentes** en el mismo modelo y un **scheduler por tipo** para controlar el orden de actualización.
+### Cambios clave
+- Soporte de **múltiples autos por vía** (horizontal **EW** y vertical **NS**) con `initialize_model((25,25); n_ew, n_ns)`.
+- **Car-following** básico: respeta **semáforo** (verde/amarillo/rojo) y **distancia mínima** entre autos, con **aceleración** (`ACC=0.05`) y **frenado** (`DEC=0.10`).
+- **Spawns aleatorios** fuera del cruce y **separación mínima** inicial.
+- **Ícono compacto** para autos (círculos) que permite mayor densidad en UI.
+- **Monitoreo**: el backend reporta `metrics.avg_units_per_tick` (promedio por tick) y `dt`; el frontend muestra **px/s** y **unidades/tick**.
 
----
+### Parámetros principales
+- `MIN_GAP=0.8`, `ACC=0.05`, `DEC=0.10`, `VMAX=1.0`, `DT=0.4`.
+- Semáforo: ciclo México (10 **verde**, 4 **amarillo**, 14 **rojo**).
 
-## Diseño del modelo
+### Cómo medir
+1. Configurar `Autos EW` y `Autos NS` a **3**, presionar `Setup` → `Start`, esperar, y registrar **velocidad promedio**.
+2. Repetir con **5** y **7**.
+3. Nota: la UI se ve mejor con ≤5, pero con 7 también se calcula la métrica.
 
-### Espacio
-- `ContinuousSpace((25, 25), periodic=true)`; el mundo es **cuadrado**.
-- El cruce está centrado en `(cx, cy) = (extent.x/2, extent.y/2)`.
-
-### Agentes
-- **`TrafficLight`** (`ContinuousAgent{2,Float64}`)
-  - Campos: `dir::Symbol` (`:EW` / `:NS`), `tick::Int`.
-  - Ciclo México: **Verde 10** → **Amarillo 4** → **Rojo 14** (total **28** ticks).
-  - Estado por `tick`: `green` / `yellow` / `red`.
-  - No se mueve; en cada paso incrementa `tick` (módulo 28).
-
-- **`Vehicle`** (`ContinuousAgent{2,Float64}`)
-  - Campos: `target_speed::Float64` (0..1).  
-  - Circula **en eje X** por la vía horizontal (Y = `cy`).
-  - **Regla de parada:** si el semáforo **EW** está en `yellow` o `red` y el auto aún no cruza la **línea de alto**, frena para quedar **antes** del cruce. En `green`, avanza con `target_speed`.
-
-### Propiedades del modelo
-Se guardan en `properties` y se consumen como atributos:
-- `model.cx`, `model.cy` — centro del cruce.
-- `model.stop_x` — **línea de alto** en la vía horizontal (X antes del cruce).
-
-### Evitar spawn dentro del cruce
-El auto se crea con `spawn_x` elegido **fuera** del intervalo central del cruce `[cx - CROSS_HALF - 0.5, cx + CROSS_HALF + 0.5]`.
-
-### Orden de activación (Scheduler)
-- `Schedulers.ByType((TrafficLight, Vehicle), false)`  
-  Primero se actualizan **todos los semáforos** y **después** el auto.  
-  Evita inconsistencias del tipo “el auto decide con un estado viejo del semáforo”.
-
----
-
-## API (Genie, `webapi.jl`)
-- **POST** `/simulations` → crea simulación
-  ```json
-  {
-    "Location": "/simulations/<id>",
-    "lights": [{ "id":1, "pos":[x,y], "dir":"EW"|"NS", "state":"green"|"yellow"|"red" }],
-    "cars":   [{ "id":2, "pos":[x,y], "vel":[vx,vy] }]
-  }
+### Reflexión individual
+Durante la ampliación del modelo apareció el reto de **ordenar las actualizaciones** para evitar decisiones con estados desfasados. Al usar `Schedulers.ByType((TrafficLight, Vehicle), false)` me aseguré de evaluar antes los semáforos y después a los autos, lo que redujo inconsistencias (por ejemplo, un auto que “se come” un alto). También ajusté la dinámica de los vehículos con **aceleración y frenado** para evitar cambios bruscos, y fijé una **distancia mínima** con una regla simple de car-following. A nivel de visualización, sustituir el ícono por círculos compactos facilitó ver más autos sin saturar. Finalmente, expuse una **métrica estable** (velocidad promedio en unidades/tick) para comparar escenarios con 3, 5 y 7 autos por calle, manteniendo separada la conversión visual (px/s) en el frontend.
