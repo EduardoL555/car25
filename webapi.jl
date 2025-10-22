@@ -2,30 +2,41 @@ include("simple.jl")
 using Genie, Genie.Renderer.Json, Genie.Requests, HTTP
 using UUIDs
 
-# Reutilizable entre recargas del archivo:
 instances = isdefined(@__MODULE__, :instances) ? instances : Dict{String, Any}()
 
 # ---- Serialización plana ----
-# { id, pos:[x,y], dir:"EW"|"NS", state:"green"|"yellow"|"red" }
-serialize_light(l) = Dict(
+serialize_light(l::TrafficLight) = Dict(
     "id"    => l.id,
     "pos"   => [l.pos[1], l.pos[2]],
     "dir"   => String(l.dir),
     "state" => String(light_state(l))
 )
 
-serialize_lights(model) = [serialize_light(l) for l in allagents(model)]
+serialize_vehicle(v::Vehicle) = Dict(
+    "id"  => v.id,
+    "pos" => [v.pos[1], v.pos[2]],
+    "vel" => [v.vel[1], v.vel[2]]
+)
 
-# ---- Rutas ----
+function gather(model)
+    lights = Vector{Any}()
+    cars   = Vector{Any}()
+    for a in allagents(model)
+        if a isa TrafficLight
+            push!(lights, serialize_light(a))
+        elseif a isa Vehicle
+            push!(cars, serialize_vehicle(a))
+        end
+    end
+    return lights, cars
+end
+
 route("/simulations", method = POST) do
     model = initialize_model()
     id = string(uuid1())
     instances[id] = model
-    json(Dict(
-        "Location" => "/simulations/$id",
-        "lights"   => serialize_lights(model),
-        "cars"     => Any[]   # etapa sin autos
-    ))
+    lights, cars = gather(model)
+    json(Dict("Location" => "/simulations/$id", "lights" => lights, "cars" => cars))
 end
 
 route("/simulations/:id") do
@@ -35,13 +46,10 @@ route("/simulations/:id") do
     end
     model = instances[sim_id]
     run!(model, 1)
-    json(Dict(
-        "lights" => serialize_lights(model),
-        "cars"   => Any[]     # etapa sin autos
-    ))
+    lights, cars = gather(model)
+    json(Dict("lights" => lights, "cars" => cars))
 end
 
-# ---- CORS / servidor ----
 Genie.config.run_as_server = true
 Genie.config.cors_headers["Access-Control-Allow-Origin"]  = "*"
 Genie.config.cors_headers["Access-Control-Allow-Headers"] = "Content-Type"
